@@ -1,0 +1,26 @@
+name: Verify bookstore and capture cURL evidence
+on:
+  push:
+    paths:
+      - 'final_project/**'
+      - '.github/workflows/bookstore.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: final_project
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: node evidence.js
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bookstore-curl-evidence
+          path: final_project/evidence/*.txt
