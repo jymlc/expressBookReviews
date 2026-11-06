@@ -1,22 +1,15 @@
-const express = require('express');
-const jwt = require('jsonwebtoken');
-const session = require('express-session')
-const customer_routes = require('./router/auth_users.js').authenticated;
-const genl_routes = require('./router/general.js').general;
+const express = require('express')
+const { authenticated } = require('./router/auth_users')
+const { general } = require('./router/general')
 
-const app = express();
+const app = express()
+app.use(express.json())
+app.use('/customer', authenticated)
+app.use('/', general)
 
-app.use(express.json());
+if (require.main === module) {
+  const port = process.env.PORT || 5000
+  app.listen(port, () => console.log(`Bookstore API listening on port ${port}`))
+}
 
-app.use("/customer",session({secret:"fingerprint_customer",resave: true, saveUninitialized: true}))
-
-app.use("/customer/auth/*", function auth(req,res,next){
-//Write the authenication mechanism here
-});
- 
-const PORT =5000;
-
-app.use("/customer", customer_routes);
-app.use("/", genl_routes);
-
-app.listen(PORT,()=>console.log("Server is running"));
+module.exports = app
