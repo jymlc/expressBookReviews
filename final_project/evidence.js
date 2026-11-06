@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict')
-const { spawn } = require('node:child_process')
-const { mkdir, writeFile } = require('node:fs/promises')
+const { spawn, spawnSync } = require('node:child_process')
+const { mkdir, readFile, writeFile } = require('node:fs/promises')
 const app = require('./index')
 const { getAllBooks, getBooksByISBN, getBooksByAuthor, getBooksByTitle } = require('./router/general')
 
@@ -58,8 +58,12 @@ async function main() {
       assert.equal(status, 200)
       assert.equal(data.fork, true)
       assert.equal(data.parent.full_name, 'ibm-developer-skills-network/expressBookReviews')
-      const proof = { full_name: data.full_name, private: data.private, fork: data.fork, parent: { full_name: data.parent.full_name } }
-      await writeFile(`${output}/githubrepo.txt`, `curl '${url}'\n\nHTTP ${status}\n${JSON.stringify(proof, null, 2)}\n\nRelevant fields from the GitHub API response.\n`)
+      const filtered = spawnSync('jq', ['-r', '.parent.full_name'], {
+        input: JSON.stringify(data), encoding: 'utf8',
+      })
+      assert.equal(filtered.status, 0, filtered.error?.message || filtered.stderr)
+      assert.equal(filtered.stdout.trim(), 'ibm-developer-skills-network/expressBookReviews')
+      await writeFile(`${output}/githubrepo.txt`, `curl -sS '${url}' | jq -r '.parent.full_name'\n\n${filtered.stdout}`)
     }
     const get = (name, path) => capture(name, [base + path], 200)
     const json = (body) => ['-H', 'Content-Type: application/json', '--data', JSON.stringify(body)]
@@ -74,6 +78,9 @@ async function main() {
     assert.deepEqual(await Promise.all([
       getAllBooks(), getBooksByISBN(1), getBooksByAuthor('Unknown'), getBooksByTitle('Things Fall Apart'),
     ]), [all, isbn, author, title])
+    await assert.rejects(getBooksByISBN(999), /Book not found/)
+    await assert.rejects(getBooksByAuthor('Missing Author'), /No books found/)
+    await assert.rejects(getBooksByTitle('Missing Title'), /No books found/)
     assert.deepEqual(await get('getbookreview', '/review/1'), {})
     const account = async (name, path, status, body = credentials) =>
       capture(name, ['-X', 'POST', base + path, ...json(body)], status, name === 'login')
@@ -93,6 +100,21 @@ async function main() {
     await capture(null, ['-X', 'DELETE', reviewUrl, '-H', `Authorization: Bearer ${otherToken}`], 404)
     assert.deepEqual((await capture('deletereview', ['-X', 'DELETE', reviewUrl, ...auth()], 200)).reviews, {})
     assert.deepEqual(await get(null, '/review/1'), {})
+    if (repo) {
+      const names = ['githubrepo', 'getallbooks', 'getbooksbyISBN', 'getbooksbyauthor', 'getbooksbytitle',
+        'getbookreview', 'register', 'login', 'reviewadded', 'deletereview']
+      const sections = await Promise.all(names.map(async (name, index) =>
+        `Question ${index + 1}\n${await readFile(`${output}/${name}.txt`, 'utf8')}`))
+      sections.push(`Question 11\nhttps://github.com/${repo}/blob/main/final_project/router/general.js\n`)
+      await writeFile(`${output}/answers.txt`, sections.join('\n--------------------\n\n'))
+      if (process.env.GITHUB_STEP_SUMMARY) {
+        const summary = sections.map((section) => {
+          const [heading, ...body] = section.trimEnd().split('\n')
+          return `## ${heading}\n\n\`\`\`text\n${body.join('\n')}\n\`\`\`\n`
+        }).join('\n')
+        await writeFile(process.env.GITHUB_STEP_SUMMARY, summary, { flag: 'a' })
+      }
+    }
     console.log('All API and Axios checks passed. Evidence is in ' + output)
   } finally {
     server.close()
